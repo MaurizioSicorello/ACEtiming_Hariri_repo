@@ -48,12 +48,12 @@ ACErandomForest <- function(DV,
 # Function for permutation test of variance explained and variable importance
 RF.permutation <- function(DV,
                            data = df,
-                           first.age = "MACE_03", 
-                           last.age = "MACE_17", 
-                           covariates = c("MACE_total", "group_num", "age"), 
+                           first.age = "KERF_Sum_3", 
+                           last.age = "KERF_Sum_17", 
+                           covariates = c("KERF_Sum", "KERF_Multi", "KERF_Duration", "Group", "Age", "Sex"), 
                            numtree = 1000,
                            numperm = 1000, 
-                           directory = paste0(wd,"/results")){
+                           directory = "results"){
   
   Results.df <- data.frame()
   
@@ -93,13 +93,12 @@ RF.permutation <- function(DV,
   Results.df <- as.data.frame(Results.df)
   row.names(Results.df) <- NULL
   
-  if(dir.exists(directory) == F){
-    directory = dirname(rstudioapi::getActiveDocumentContext()$path)
-    cat("\n Ouput folder cannot be located. Saving results to script location")
-  }
+  #if(dir.exists(directory) == F){
+  #  directory = dirname(rstudioapi::getActiveDocumentContext()$path)
+  #  cat("\n Ouput folder cannot be located. Saving results to script location")
+  #}
   
-  outDir <- paste0(directory, "/", "RFperm_", DV, ".csv")
-  write.csv(Results.df, file = outDir, row.names = F)
+  write.csv(Results.df, file = here("results", paste0("RFperm_", DV, ".csv")), row.names = F)
 }
 
 

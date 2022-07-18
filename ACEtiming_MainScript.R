@@ -94,8 +94,16 @@ cor.test(df$FDS_Sum, df$con0009_AAL_Amygdala_left)
 
 ########################
 # random forests
-ACErandomForest(DV = "con0010_AAL_Amygdala_right", include.imp = T)
+ACErandomForest(DV = "con0010_AAL_Amygdala_right", include.imp = F)
 ACErandomForest(DV = "con0010_AAL_Amygdala_left", include.imp = F)
 ACErandomForest(DV = "con0009_AAL_Amygdala_right", include.imp = F)
 ACErandomForest(DV = "con0009_AAL_Amygdala_left", include.imp = F)
+
+########################
+# permutation loops
+DVs <- c("con0010_AAL_Amygdala_right", "con0010_AAL_Amygdala_left", "con0009_AAL_Amygdala_right", "con0009_AAL_Amygdala_left")
+
+for(i in 1:length(DVs)){
+  RF.permutation(DV = DVs[i])
+}
 
