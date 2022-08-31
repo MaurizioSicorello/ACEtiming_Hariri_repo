@@ -143,3 +143,64 @@ Rf.permResults <- function(ROI, RF.model, directory = paste0(wd,"/results")){
   
   output
 }
+
+
+
+##########################
+# model comparisons
+
+#####DONT FORGET ABOUT MTRY
+
+
+Rf.compareModels <- function(DV, 
+                             data = df,
+                             predictorSets = NULL,
+                             numtree = 1000,
+                             mtryArg = "sqroot",
+                             permute_DV = FALSE){
+  
+  numSets <- length(predictorSets)
+  RFresults <- numeric(numSets)
+  
+  if(permute_DV == TRUE){
+    data[, DV] <- sample(data[, DV])
+  }
+  
+  for(i in 1:numSets){
+    
+    RF.data <- data.frame(data[, DV], data[, predictorSets[[i]]])
+    names(RF.data)[1] <- DV
+    
+    mtryPar <- switch(mtryArg,
+                      default5 = 5,
+                      sqroot = sqrt(ncol(RF.data)-1),
+                      bagging = ncol(RF.data) -1)
+
+    f <- as.formula(paste(DV, ".", sep = " ~ "))
+    cfModel <- cforest(f, data = RF.data, controls = cforest_unbiased(ntree = numtree, mtry = mtryPar))
+    
+    R_squared <- 1 - sum((data[,DV]-predict(cfModel, OOB = T))^2)/sum((data[,DV]-mean(data[,DV]))^2)
+    RFresults[i] <- R_squared
+    
+  }
+  
+  diffScores <- unmatrix(
+      as.matrix(
+        dist(RFresults)
+        )
+      )
+  
+  results <- list("RF_results" = RFresults, "Rsquared_differences" = diffScores)
+  
+  return(results)
+  
+  
+}
+
+
+
+
+
+
+
+
