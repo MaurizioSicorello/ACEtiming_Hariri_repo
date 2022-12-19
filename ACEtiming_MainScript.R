@@ -3,9 +3,9 @@
 
 # repeated random forest for better accuracy (maybe only for main estimate)
 # run permutation test
-# check out relevance of mincriterion
-# model comparison when time etc. is included
-
+# correlation replications of previous studies
+# remove group variable from all models 
+# adapt rf.compare function so that accuracy vector is named with model names if multiple models are provided
 
 
 ######################## 
@@ -25,6 +25,10 @@ library("tidyverse")
 library("gdata")
 library("mediation")
 library("ez")
+library("Hmisc")
+library("gameofthrones")
+library("cocor")
+library("cowplot")
 
 source(here("functions", "randomForest_functions.R"))
 
@@ -40,22 +44,6 @@ describe(df)
 boxplot(dplyr::select(df, starts_with("AAL")))
 
 
-########################
-# check amygdala reactivity to different emotions
-
-apply(dplyr::select(df, starts_with("AAL")), 2, t.test)
-
-dfANOVA <- df %>% 
-  dplyr::select("ID", starts_with("AAL")) %>% 
-  pivot_longer(starts_with("AAL"))
-
-dfANOVA <- data.frame(dfANOVA, str_split_fixed(dfANOVA$name, "_", 6))
-  
-amyModel <- ezANOVA(data = dfANOVA, 
-                    dv = value,
-                    within = .(X3, X4),
-                    wid = ID)
-print(amyModel)
 
 ######################## 
 # plot ACE
@@ -74,8 +62,8 @@ ggplot(data = df_timing_long, aes(x = variable, y = value, group = df.ID)) +
   stat_summary(aes(group = 1), geom = "line", fun = mean, size = 1) +
   stat_summary(aes(group = 1), geom = "point", fun = mean, size = 4) +
   stat_summary(aes(group = 1), fun.data = mean_se, fun.args = list(mult = 1.96), geom = "errorbar", width = 0.5, size = 1) +
-
-  xlab("Age at adversity") + ylab("MACE") + 
+  
+  xlab("Age at adversity") + ylab("KERF-40+ Severity Scores") + 
   labs(color = NULL) +
   scale_colour_discrete(labels = c("PTSD", "Trauma Controls"), guide = guide_legend(reverse=FALSE)) +
   scale_x_discrete(labels= as.factor(seq(from = 0, to = 17, by = 1))) +
@@ -83,122 +71,431 @@ ggplot(data = df_timing_long, aes(x = variable, y = value, group = df.ID)) +
   theme_classic() +
   theme(legend.position = "top")
 
-
-
-########################
-# correlations
-
-# amygdala activity only
-corrAmy <- cor(dplyr::select(df, starts_with("AAL")))
-corrplot.mixed(corrAmy)
-
-# overall trauma, psychopathology and relevant amygdala activity
-df_small1 <- dplyr::select(df, c("KERF_Sum", "CTQ_Sum", "BSI_GSI", "PCL_5_Sum", "FDS_ges_Sum", starts_with("AAL")))
-
-corrSelect <- cor(df_small1)
-correSelect_pAdjust <- corr.p(corrSelect, n = nrow(df_small1), adjust = "holm")$p
-corrplot(corrSelect, p.mat = correSelect_pAdjust) # below diagonal: uncorrected p-values. above diagonal: corrected p-values 
-
-plot(df$KERF_Sum, df$con0009_AAL_Amygdala_right_anger_fear_vs_shapes)
-cor.test(df$KERF_Sum, df$con0009_AAL_Amygdala_right_anger_fear_vs_shapes)
-
-plot(df$BSI_GSI, df$con0009_AAL_Amygdala_right_anger_fear_vs_shapes)
-cor.test(df$BSI_GSI, df$con0009_AAL_Amygdala_right_anger_fear_vs_shapes)
-
-plot(df$FDS_ges_Sum, df$con0009_AAL_Amygdala_right_anger_fear_vs_shapes)
-cor.test(df$FDS_ges_Sum, df$con0009_AAL_Amygdala_right_anger_fear_vs_shapes)
+ggsave(here("figures", "Figure1_ACEexposureTimings.pdf"), device = "pdf")
+ggsave(here("figures", "Figure1_ACEexposureTimings.png"), device = "tiff")
 
 
 
 ########################
-# random forests for anger&fear vs shapes
-ACErandomForest(DV = "con0009_AAL_Amygdala_right_anger_fear_vs_shapes", include.imp = F)
-ACErandomForest(DV = "con0009_AAL_Amygdala_left_anger_fear_vs_shapes", include.imp = F)
+# check amygdala reactivity to different emotions
 
-# reapeat and average results for right amygdala for stability
-varExpl <- numeric(10)
-for(i in 1:10){
-  set.seed(777+i)
-  varExpl[i] <- ACErandomForest(DV = "con0009_AAL_Amygdala_right_anger_fear_vs_shapes", include.imp = F)$Variance_explained
-}
-mean(varExpl)
+df_amyOnly <- df[, c("con0009_AAL_Amygdala_right_anger_fear_vs_shapes", "con0009_AAL_Amygdala_left_anger_fear_vs_shapes", 
+                     "con0012_AAL_Amygdala_right_neutral_surprised_vs_shapes", "con0012_AAL_Amygdala_left_neutral_surprised_vs_shapes")]
 
-# check for contrast anger versus shapes
-varExpl <- numeric(10)
-for(i in 1:10){
-  set.seed(888+i)
-  varExpl[i] <- ACErandomForest(DV = "AAL_Amygdala_right_angry_vs_shapes", include.imp = F)$Variance_explained
-}
-mean(varExpl)
+apply(df_amyOnly, 2, t.test)
+apply(df_amyOnly, 2, function(x) mean(x)/sd(x))
 
-# check for contrast fearful versus shapes
-varExpl <- numeric(10)
-for(i in 1:10){
-  set.seed(888+i)
-  varExpl[i] <- ACErandomForest(DV = "AAL_Amygdala_right_fearful_vs_shapes", include.imp = F)$Variance_explained
-}
-mean(varExpl)
+dfANOVA <- melt(data.frame(ID = df$ID, df_amyOnly), id.vars = "ID")
+dfANOVA <- data.frame(dfANOVA, str_split_fixed(dfANOVA$variable, "_", 6))
+names(dfANOVA)[c(7,9)] <- c("hemisphere", "valence")
+  
+amyModel <- ezANOVA(data = dfANOVA, 
+                    dv = value,
+                    within = .(hemisphere, valence),
+                    wid = ID)
+print(amyModel)
 
-
-ACErandomForest(DV = "BSI_GSI", include.imp = F)
-ACErandomForest(DV = "FDS_ges_Sum", include.imp = F)
-
+rcorr(as.matrix(df_amyOnly))
 
 
 ########################
 # model comparisons
-#[at the moment with all life years for the typeTiming model!]
+# sources: Yeh, A. (2000). More accurate tests for the statistical significance of result differences. arXiv preprint cs/0008005
+# https://cborchers.com/2021/04/22/permutation-test-for-f-score-differences-in-python/
 
-model1_baseline <- c("KERF_Sum", "KERF_Multi", "KERF_Duration", "Group", "Age", "Sex")
+# SUPER IMPORTANT FOR THE COMPARISON TEST: Maybe shuffling must occur for each individual. I just randomly shuffled everything. That's a problem
+
+model1_baseline <- c("KERF_Sum", "KERF_Multi", "KERF_Duration", "Age", "Sex")
 model2_type <- c(model1_baseline, names(df)[which(names(df) == "KERF_SUM_PEA"):which(names(df) == "KERF_SUM_SEXA_O")])
-model3_timing <- c(model2_type, names(df)[which(names(df) == "KERF_Sum_3"):which(names(df) == "KERF_Sum_17")])
-model4_typeTiming <- c(model2_type, names(df)[which(names(df) == "SUM_PEA_0"):which(names(df) == "SUM_WITS_17")])
-model5_psychoPath <- c(model1_baseline, "BSI_GSI", "BDI.II_Sum", "PCL_5_Sum", "SSD.12_Sum", "FDS_ges_Sum", "FDS_DES_Sum")
-model6_psychoPatTypeTiming <- c(model5_psychoPath, names(df)[which(names(df) == "SUM_PEA_0"):which(names(df) == "SUM_WITS_17")])
+model3_timing <- c(model1_baseline, names(df)[which(names(df) == "KERF_Sum_3"):which(names(df) == "KERF_Sum_17")])
+model4_typeTiming <- c(model2_type, names(df)[which(names(df) == "SUM_PEA_0"):which(names(df) == "SUM_WITS_17")]) 
+model4_typeTiming <- model4_typeTiming[str_detect(model4_typeTiming, "_0|_1$|_2", negate = TRUE)] # 2nd line for model 4 removes ages 0-2
+model5_psychoPath <- c(model1_baseline, "BSI_GSI", "BDI.II_Sum", "PCL_5_Sum", "SSD.12_Sum", "FDS_DES_Sum")
+model6_psychoPatTypeTiming <- c(model5_psychoPath, model4_typeTiming)
 
 modelList <- list(model1_baseline, model2_type, model3_timing, model4_typeTiming, model5_psychoPath, model6_psychoPatTypeTiming)
 
 
-Rf.compareModels("con0009_AAL_Amygdala_right_anger_fear_vs_shapes", 
+# make dataframe without missings on any predictors of interest for any model of interest
+dfcomplete <- df[complete.cases(df[,model6_psychoPatTypeTiming]), ]
+
+# predict right amygdala [might take a couple of minutes]
+amyRight_AccRepeat <- RFmain_repeat_multiModel("con0009_AAL_Amygdala_right_anger_fear_vs_shapes", 
                  predictorSets = modelList,
-                 mtryArg = "sqroot")
+                 mtryArg = "sqroot",
+                 data = dfcomplete,
+                 repeats = 5,
+                 seed = 1000)
 
-Rf.compareModels("con0009_AAL_Amygdala_left_anger_fear_vs_shapes", 
-                 predictorSets = modelList,
-                 mtryArg = "sqroot")
+# predict left amygdala
+amyLeft_AccRepeat <- RFmain_repeat_multiModel("con0009_AAL_Amygdala_left_anger_fear_vs_shapes", 
+                                               predictorSets = modelList,
+                                               mtryArg = "bagging",
+                                               data = dfcomplete,
+                                               repeats = 5,
+                                               seed = 1001)
 
-Rf.compareModels("BSI_GSI", 
-                 predictorSets = modelList,
-                 mtryArg = "sqroot")
+# predict right amygdala of control contrast
+amyRight_control_AccRepeat <- RFmain_repeat_multiModel("con0012_AAL_Amygdala_right_neutral_surprised_vs_shapes", 
+                                               predictorSets = modelList,
+                                               mtryArg = "bagging",
+                                               data = dfcomplete,
+                                               repeats = 5,
+                                               seed = 1002)
 
-psychoPathModel <- cforest(data = df[, c("con0009_AAL_Amygdala_right_anger_fear_vs_shapes", model5_psychoPath)],
-                              con0009_AAL_Amygdala_right_anger_fear_vs_shapes ~ .,
-                              controls = cforest_unbiased(mtry = sqrt(length(model5_psychoPath))))
+# predict left amygdala of control contrast
+amyLeft_control_AccRepeat <- RFmain_repeat_multiModel("con0012_AAL_Amygdala_left_neutral_surprised_vs_shapes", 
+                                              predictorSets = modelList,
+                                              mtryArg = "bagging",
+                                              data = dfcomplete,
+                                              repeats = 5,
+                                              seed = 1003)
 
-plot(varimp(psychoPathModel, conditional = FALSE))
+# check results
+amyRight_AccRepeat
+amyLeft_AccRepeat
+amyRight_control_AccRepeat
+amyLeft_control_AccRepeat
+
+
+# plot results for target contrast
+modelNames <- c("Model 1: Baseline", "Model 2: Type", "Model 3: Timing", "Model 4: Type x Timing", "Model 5: Psychopathology", "Model 6: Full Model")
+df_plotAcc <- data.frame("modelNames" = rep(modelNames, 2), "Accuracies" = c(amyRight_AccRepeat, amyLeft_AccRepeat), "Hemisphere" = rep(c("Right", "Left"), each = length(modelNames)))
+
+ggplot(data = df_plotAcc, aes(y = Accuracies, x = modelNames, fill = Hemisphere)) +
+  geom_bar(position = "dodge", stat = "identity", colour = "black") +
+  
+  ylim(-0.2, 0.4) + 
+  ylab(expression(paste(italic("R²"), "(cross-validated)"))) +
+
+  xlab(NULL) +
+  
+  theme_classic() +
+  scale_fill_got_d(option = "Daenerys") +
+  theme(axis.text.x=element_text(angle = 45, vjust = 0.5)) +
+  
+  annotate("text", x = 4.775, y = 0.025, label = "*") +
+  annotate("text", x = 5.225, y = 0.075, label = "***") +
+  annotate("text", x = 5.775, y = 0.0575, label = "**") +
+  annotate("text", x = 6.225, y = 0.10, label = "***") +
+  
+  geom_segment(aes(x = 4.66, y = 0.15, xend = 5.85, yend = 0.15)) +
+  annotate("text", x = 5.25, y = 0.165, label = "N.S.") +
+  
+  geom_segment(aes(x = 5.1, y = 0.22, xend = 6.3, yend = 0.22)) +
+  annotate("text", x = 5.75, y = 0.235, label = "N.S.") +
+  
+  scale_y_continuous(n.breaks = 12, limits = c(-0.2, 0.4))
+  
+ggsave(here("figures", "Figure2_AccuracyModelComparisons.png"), device = "png")
+ggsave(here("figures", "Figure2_AccuracyModelComparisons.pdf"), device = "pdf")
+  
+
+# compare Variance explained of Models (set "saveModels" to TRUE to later compare models for significance)
+amyRightModels <- RFmain("con0009_AAL_Amygdala_right_anger_fear_vs_shapes", 
+                         predictorSets = modelList,
+                         mtryArg = "bagging",
+                         data = dfcomplete,
+                         saveModels = TRUE)
+amyRightModels$Accuracies
+
+# compare two models for differences in accuracy
+# [here, I take the accuracies from the more stable repeated models]
+# [pretty fast procedure!]
+RFcompare(Diff = (amyRight_AccRepeat[5] - amyRight_AccRepeat[6]),
+          responseVar = dfcomplete$con0009_AAL_Amygdala_right_anger_fear_vs_shapes,
+          model1 = amyRightModels$RFmodels[[5]],
+          model2 = amyRightModels$RFmodels[[6]],
+          nPerms = 1000)
+
+# left amygdala model comparison
+amyLeftModels <- RFmain("con0009_AAL_Amygdala_left_anger_fear_vs_shapes", 
+                        predictorSets = modelList,
+                        mtryArg = "bagging",
+                        data = dfcomplete,
+                        saveModels = TRUE)
+amyLeftModels$Accuracies
+
+RFcompare(Diff = (amyLeft_AccRepeat[5] - amyLeft_AccRepeat[6]),
+          responseVar = dfcomplete$con0009_AAL_Amygdala_left_anger_fear_vs_shapes,
+          model1 = amyLeftModels$RFmodels[[5]],
+          model2 = amyLeftModels$RFmodels[[6]],
+          nPerms = 1000)
+
+
+
+RFrep_right_model5 <- RFmain_repeat_singleModel("con0009_AAL_Amygdala_right_anger_fear_vs_shapes", 
+                          predictorSets = modelList[[5]],
+                          data = dfcomplete,
+                          mtryArg = "bagging",
+                          include.imp = TRUE,
+                          repeats = 5,
+                          seed = 666)
+
+# [takes really long to evaluate.]
+RFrep_right_model6 <- RFmain_repeat_singleModel("con0009_AAL_Amygdala_right_anger_fear_vs_shapes", 
+                                                predictorSets = modelList[[6]],
+                                                data = dfcomplete,
+                                                mtryArg = "bagging",
+                                                include.imp = TRUE,
+                                                repeats = 5,
+                                                seed = 666)
+
+
+
+RFrep_left_model5 <- RFmain_repeat_singleModel("con0009_AAL_Amygdala_left_anger_fear_vs_shapes", 
+                                                predictorSets = modelList[[5]],
+                                                data = dfcomplete,
+                                                mtryArg = "bagging",
+                                                include.imp = TRUE,
+                                                repeats = 5,
+                                                seed = 667)
+
+RFrep_left_model6 <- RFmain_repeat_singleModel("con0009_AAL_Amygdala_left_anger_fear_vs_shapes", 
+                                               predictorSets = modelList[[6]],
+                                               data = dfcomplete,
+                                               mtryArg = "bagging",
+                                               include.imp = TRUE,
+                                               repeats = 5,
+                                               seed = 667)
+
+# create dataframe with model accuracy and variable importances from permuted model
+# [save the results to another folder, because this procedure takes long]
+# amyRight_model5_perm <- RFperm("con0009_AAL_Amygdala_right_anger_fear_vs_shapes", 
+#                                predictorSets = modelList[[5]],
+#                                data = dfcomplete,
+#                                mtryArg = "bagging",
+#                                numtree = 1000,
+#                                nPerm = 1000)
+# amyRight_model5_perm
+# 
+# if(!file.exists(here("results", "amyRight_model5_perm.csv"))){
+#   write.csv(amyRight_model5_perm, here("results", "amyRight_model5_perm.csv"), row.names = FALSE)
+# }else{
+#   warning("file already exists in folder")
+# }
+
+# compute p-values
+model5Perms_right <- read.csv(here("results", "amyRight_model5_perm.csv"))
+cbind(names(model5Perms_right), returnP(c(RFrep_right_model5$Accuracy, RFrep_right_model5$Importance), model5Perms_right))
+
+model6Perms_right <- read.csv(here("results", "amyRight_model6_perm.csv"))
+amyRight_model6_pValues <- cbind(names(model6Perms_right), returnP(c(RFrep_right_model6$Accuracy, RFrep_right_model6$Importance), model6Perms_right))
+if(!file.exists(here("results", "amyRight_model6_pValues.csv"))){
+  write.csv(amyRight_model6_pValues, here("results", "amyRight_model6_pValues.csv"), row.names = FALSE)
+}else{
+  warning("file already exists in folder")
+}
+
+model5Perms_left <- read.csv(here("results", "amyLeft_model5_perm.csv"))
+cbind(names(model5Perms_left), returnP(c(RFrep_left_model5$Accuracy, RFrep_left_model5$Importance), model5Perms_left))
+
+model6Perms_left <- read.csv(here("results", "amyLeft_model6_perm.csv"))
+amyLeft_model6_pValues <- cbind(names(model6Perms_left), returnP(c(RFrep_left_model6$Accuracy, RFrep_left_model6$Importance), model6Perms_left))
+if(!file.exists(here("results", "amyLeft_model6_pValues.csv"))){
+  write.csv(amyLeft_model6_pValues, here("results", "amyLeft_model6_pValues.csv"), row.names = FALSE)
+}else{
+  warning("file already exists in folder")
+}
+
+
+# heuristic tests for left amygdala based on right amygdala permutations. UPDATE THIS!
+cbind(names(model5Perms_right), returnP(c(RFrep_left_model5$Accuracy, RFrep_left_model5$Importance), model5Perms_right))
+
+
+
+# plot results for target contrast
+predictorList <- names(RFrep_right_model5$Importance)
+df_plotImp <- data.frame("Predictors" = rep(predictorList, 2), "varImp" = c(RFrep_right_model5$Importance, RFrep_left_model5$Importance), "Hemisphere" = rep(c("Right", "Left"), each = length(predictorList)))
+df_plotImp$Predictors <-  factor(df_plotImp$Predictors, unique(df_plotImp$Predictors))
+
+ggplot(data = df_plotImp, aes(y = varImp, x = Predictors, fill = Hemisphere)) +
+  geom_bar(position = "dodge", stat = "identity", colour = "black") +
+  
+  ylab("Variable Importance") +
+  
+  xlab(NULL) +
+  
+  theme_classic() +
+  scale_fill_got_d(option = "Daenerys") +
+  theme(axis.text.x=element_text(angle = 45, vjust = 0.5)) +
+  
+  scale_y_continuous(n.breaks = 12, limits = c(-0.04, 0.2)) +
+  annotate("text", x = 9.75, y = 0.13, label = "***") +
+  annotate("text", x = 10.3, y = 0.115, label = "***")
+
+
+ggsave(here("figures", "Figure3_variableImportance.png"), device = "png")
+ggsave(here("figures", "Figure3_variableImportance.pdf"), device = "pdf")
+
+
+
+########################
+# bivariate association with FDS
+cor.test(df$FDS_DES_Sum, df$con0009_AAL_Amygdala_right_anger_fear_vs_shapes)
+cor.test(df$FDS_DES_Sum, df$con0009_AAL_Amygdala_left_anger_fear_vs_shapes)
+
+
+cocor(~FDS_DES_Sum+con0009_AAL_Amygdala_left_anger_fear_vs_shapes | FDS_DES_Sum+con0009_AAL_Amygdala_right_anger_fear_vs_shapes,
+      data = df)
+
+
+
+lAmyPlot <- ggplot(data = df, aes(x = FDS_DES_Sum, y = con0009_AAL_Amygdala_left_anger_fear_vs_shapes)) + 
+  geom_point(alpha = 0.3) + 
+  geom_smooth(method = "lm", colour="black") +
+  
+  xlab(NULL) + 
+  ylab("Contrast values \n(Negative Faces versus Shapes)") + 
+  
+  theme_classic() +
+  
+  ggtitle("Left Amygdala") +
+  theme(plot.title = element_text(hjust = 0.5))
+
+
+rAmyPlot <- ggplot(data = df, aes(x = FDS_DES_Sum, y = con0009_AAL_Amygdala_right_anger_fear_vs_shapes)) + 
+  geom_point(alpha = 0.3) + 
+  geom_smooth(method = "lm", colour="black") +
+  
+  xlab(NULL) + 
+  #ylab("contrast values", colour = "white") + 
+  
+  theme_classic() +
+  
+  ggtitle("Right Amygdala") +
+  theme(plot.title = element_text(hjust = 0.5),
+        axis.title.y = element_text(colour = "white"))
+
+twoPanelFig <- plot_grid(lAmyPlot, rAmyPlot)
+ggdraw(add_sub(twoPanelFig, "Dissociative Symptoms", size = 12))
+
+ggsave(here("figures", "Figure4_FDScorrelations.png"), device = "png")
+ggsave(here("figures", "Figure4_FDScorrelations.pdf"), device = "pdf")
+
+
+
 
 
 ########################
 # mediation
 
-fit.totaleffect <- lm(data = df,
-                   con0009_AAL_Amygdala_right_anger_fear_vs_shapes ~ KERF_Sum)
-summary(fit.totaleffect)
+cor.test(df$FDS_DES_Sum, df$KERF_Sum)
+cor.test(df$KERF_Sum, df$con0009_AAL_Amygdala_right_anger_fear_vs_shapes)
+cor.test(df$KERF_Sum, df$con0009_AAL_Amygdala_left_anger_fear_vs_shapes)
 
-fit.mediator <- lm(data = df,
-                FDS_ges_Sum ~ KERF_Sum)
-summary(fit.mediator)
+# right amygdala
+dfMediation <- df[, c("con0009_AAL_Amygdala_right_anger_fear_vs_shapes", "con0009_AAL_Amygdala_left_anger_fear_vs_shapes", "KERF_Sum", "KERF_Multi", "KERF_Duration", "FDS_DES_Sum")]
+dfMediation <- data.frame(scale(dfMediation))
 
-fit.dv <- lm(data = df,
-             con0009_AAL_Amygdala_right_anger_fear_vs_shapes ~ FDS_ges_Sum+KERF_Sum)
-summary(fit.dv)
+fit.totaleffect_right <- lm(data = dfMediation,
+                   con0009_AAL_Amygdala_right_anger_fear_vs_shapes ~ KERF_Sum+Sex+Age)
+summary(fit.totaleffect_right)
 
-medResults = mediation::mediate(fit.mediator, fit.dv, treat='KERF_Sum', mediator='FDS_ges_Sum', boot=T)
-summary(medResults)
+fit.mediator_right <- lm(data = dfMediation,
+                FDS_DES_Sum ~ KERF_Sum+Sex+Age)
+summary(fit.mediator_right)
+
+fit.dv_right <- lm(data = dfMediation,
+             con0009_AAL_Amygdala_right_anger_fear_vs_shapes ~ FDS_DES_Sum+KERF_Sum+Sex+Age)
+summary(fit.dv_right)
+
+medResults_right = mediation::mediate(fit.mediator_right, fit.dv_right, treat='KERF_Sum', mediator='FDS_DES_Sum', boot=T, sims = 5000)
+summary(medResults_right)
+
+
+# left amygdala
+fit.totaleffect_left <- lm(data = dfMediation,
+                            con0009_AAL_Amygdala_left_anger_fear_vs_shapes ~ KERF_Sum+Sex+Age)
+summary(fit.totaleffect_left)
+
+fit.mediator_left <- lm(data = dfMediation,
+                         FDS_DES_Sum ~ KERF_Sum+Sex+Age)
+summary(fit.mediator_left)
+
+fit.dv_left <- lm(data = dfMediation,
+                   con0009_AAL_Amygdala_left_anger_fear_vs_shapes ~ FDS_DES_Sum+KERF_Sum+Sex+Age)
+summary(fit.dv_left)
+
+medResults_left = mediation::mediate(fit.mediator_left, fit.dv_left, treat='KERF_Sum', mediator='FDS_DES_Sum', boot=T, sims = 5000)
+summary(medResults_left)
+
+
+########################
+# random forests predicting dissociation
+
+RF_FDS_models <- RFmain("FDS_DES_Sum",
+       predictorSets = modelList[1:4],
+       mtryArg = "bagging",
+       data = dfcomplete,
+       saveModels = TRUE)
+
+
+RF_FDS_repAccs <- RFmain_repeat_multiModel("FDS_DES_Sum", 
+                         predictorSets = modelList[1:4],
+                         mtryArg = "bagging",
+                         data = dfcomplete,
+                         repeats = 5,
+                         seed = 1001)
+
+RF_FDS_repSingle <- RFmain_repeat_singleModel("FDS_DES_Sum", 
+                                           predictorSets = modelList[[1]],
+                                           mtryArg = "bagging",
+                                           data = dfcomplete,
+                                           repeats = 5,
+                                           include.imp = TRUE,
+                                           seed = 1001)
+
+
+# create dataframe with model accuracy and variable importances from permuted model
+# [save the results to another folder, because this procedure takes long]
+FDS_model1_perm <- RFperm("FDS_DES_Sum",
+                               predictorSets = modelList[[1]],
+                               data = dfcomplete,
+                               mtryArg = "bagging",
+                               numtree = 1000,
+                               nPerm = 1000)
+
+if(!file.exists(here("results", "FDS_model1_perm.csv"))){
+  write.csv(FDS_model1_perm, here("results", "FDS_model1_perm.csv"), row.names = FALSE)
+}else{
+  warning("file already exists in folder")
+}
+
+# compute p-values
+FDS_model1_perm <- read.csv(here("results", "FDS_model1_perm.csv"))
+cbind(names(FDS_model1_perm), returnP(c(RF_FDS_repSingle$Accuracy, RF_FDS_repSingle$Importance), FDS_model1_perm))
+
+RFcompare(Diff = (RF_FDS_repAccs[1] - RF_FDS_repAccs[2]),
+          responseVar = dfcomplete$FDS_DES_Sum,
+          model1 = RF_FDS_models$RFmodels[[1]],
+          model2 = RF_FDS_models$RFmodels[[2]],
+          nPerms = 1000)
 
 
 
-interactionModel <- lm(data = df,
-                        con0009_AAL_Amygdala_right_anger_fear_vs_shapes ~ FDS_ges_Sum*KERF_Sum)
-summary(interactionModel)
+########################
+# life years of interest
+
+df$teicher_prePub <- (df$SUM_PPA_4+df$SUM_PPA_5+df$SUM_PPA_7)/3
+df$teicher_postPub <- (df$SUM_PEER_14+df$SUM_PEER_16)/2
+df$amyBilat_negFaces <- (df$con0009_AAL_Amygdala_left_anger_fear_vs_shapes+df$con0009_AAL_Amygdala_right_anger_fear_vs_shapes)/2
+
+cor.test(df$teicher_postPub, df$amyBilat_negFaces)
+cor.test(df$teicher_prePub, df$amyBilat_negFaces)
+
+df$sicorello_prePub <- (df$KERF_Sum_3+df$KERF_Sum_4)/2
+df$sicorello_postPub <- (df$KERF_Sum_16+df$KERF_Sum_16)/2
+
+summary(
+  lm(data = df,
+     scale(con0009_AAL_Amygdala_right_anger_fear_vs_shapes) ~ scale(sicorello_prePub)+scale(PCL_5_Sum)
+  )
+)
+
+summary(
+  lm(data = df,
+     scale(con0009_AAL_Amygdala_right_anger_fear_vs_shapes) ~ scale(sicorello_postPub)+scale(PCL_5_Sum)
+  )
+)
 

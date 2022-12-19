@@ -1,166 +1,29 @@
 ##########################
-# Function to conduct random forest regression
-ACErandomForest <- function(DV,
-                            data = df,
-                            first.age = "KERF_Sum_3", 
-                            last.age = "KERF_Sum_17", 
-                            covariates = c("KERF_Sum", "KERF_Multi", "KERF_Duration", "Group", "Age", "Sex"), 
-                            numtree = 1000,
-                            include.imp = T,
-                            plot.imp = T){
-  
-  # Make smaller df with relevant variables
-  data.DVcov <- data[, c(DV, covariates)]
-  data.timing <- data[, which(names(data) == first.age):which(names(data) == last.age)]
-  RF.data <- data.frame(data.timing, data.DVcov)
-  
-  # Do random forest regression
-  f <- as.formula(paste(DV, ".", sep = " ~ "))
-  cfModel <- cforest(f, data = RF.data, controls = cforest_unbiased(ntree = numtree))
-  
-  # Performance measures
-  R_squared <- 1 - sum((data[,DV]-predict(cfModel, OOB = T))^2)/sum((data[,DV]-mean(data[,DV]))^2)
-  rmse <- sqrt(mse(predict(cfModel, OOB = T), data[,DV]))
-  rmse_baseline <- rmse(data[,DV], mean(data[,DV]))
-  if(include.imp == T){imp <- varimp(cfModel, conditional = TRUE)}else{
-    plot.imp <- FALSE
-    imp <- NA
-  }
-  
-  # Output model and performance in list
-  output <- list(cfModel, R_squared, rmse, rmse_baseline, imp)
-  names(output) <- c("Model", "Variance_explained", "RMSE", "RMSE_baseline", "variableImportance")
-  
-  # Plot variable importance
-  if(plot.imp == T){
-    limits <- c(5*min(imp), 2*max(imp))
-    barplot(imp, xlab = "Features", ylab = "Importance", ylim = limits, las = 2)
-    abline(h = abs(min(imp)), lty = 2)
-  }
-  
-  output
-}
+# main random forest function
 
-
-
-
-##########################
-# Function for permutation test of variance explained and variable importance
-RF.permutation <- function(DV,
-                           data = df,
-                           first.age = "KERF_Sum_3", 
-                           last.age = "KERF_Sum_17", 
-                           covariates = c("KERF_Sum", "KERF_Multi", "KERF_Duration", "Group", "Age", "Sex"), 
-                           numtree = 1000,
-                           numperm = 1000, 
-                           directory = "results"){
-  
-  Results.df <- data.frame()
-  
-  #Start loop
-  for(i in 1:numperm){
-    
-    # Progress report
-    cat("Permutation: ", "(", i, "/", numperm, ")\n")
-    
-    # resample DV
-    data.resampled <- data
-    data.resampled[, DV] <- sample(data[ ,DV])
-    
-    # run random forest
-    RF.model.perm <- ACErandomForest(DV, 
-                                     data = data.resampled, 
-                                     first.age = first.age,
-                                     last.age = last.age,
-                                     covariates = covariates,
-                                     numtree = numtree,
-                                     plot.imp = F)
-    
-    # extract R_squared and variable importance
-    results.row <- c(RF.model.perm$Variance_explained, RF.model.perm$variableImportance)
-    names(results.row)[1] <- "R_squared"
-    
-    # save to dataframe
-    if(i == 1){
-      Results.df <- results.row
-    }else{
-      Results.df <- rbind(Results.df, results.row)
-    }
-    
-  }
-  
-  # save dataframe to results folder
-  Results.df <- as.data.frame(Results.df)
-  row.names(Results.df) <- NULL
-  
-  #if(dir.exists(directory) == F){
-  #  directory = dirname(rstudioapi::getActiveDocumentContext()$path)
-  #  cat("\n Ouput folder cannot be located. Saving results to script location")
-  #}
-  
-  write.csv(Results.df, file = here("results", paste0("RFperm_", DV, ".csv")), row.names = F)
-}
-
-
-
-
-##########################
-# Function for p-values from empirical results against permutation-based distributions
-
-
-# helper function to get the frequency of values larger (or smaller for RMSE) than an empirical value
-pValuePerm <- function(xEmp, xPerm, larger = T){
-  
-  xEmp <- as.numeric(xEmp)
-  
-  if(larger == T){
-    p <- sum(xPerm >= xEmp)/length(xPerm)
-  }else{
-    p <- sum(xPerm <= xEmp)/length(xPerm)
-  }
-  p
-}
-
-# Main function
-Rf.permResults <- function(ROI, RF.model, directory = paste0(wd,"/results")){
-  
-  # read csv
-  df.perm <- read.csv(paste0(directory, "/RFperm_", ROI, ".csv"))
-  
-  # p-value for variance explained
-  R_squared_P <- pValuePerm(RF.model$Variance_explained, df.perm[, 1])
-  
-  # Loop which calculates p-values for variable importances
-  varImp <- RF.model$variableImportance
-  varImp_P <- numeric(length = length(varImp))
-  for(i in 1:length(varImp)){
-    varImp_P[i] <- pValuePerm(varImp[i], df.perm[, i+1])
-  }
-  names(varImp_P) <- names(varImp)
-  
-  output <- list(R_squared_P, varImp_P)
-  names(output) <- c("R_squared_p", "variableImportance_p")
-  
-  output
-}
-
-
-
-##########################
-# model comparisons
-
-#####DONT FORGET ABOUT MTRY
-
-
-Rf.compareModels <- function(DV, 
+RFmain <- function(DV, 
                              data = df,
                              predictorSets = NULL,
                              numtree = 1000,
                              mtryArg = "sqroot",
-                             permute_DV = FALSE){
+                             permute_DV = FALSE, 
+                             include.imp = FALSE,
+                             saveModels = FALSE){
   
-  numSets <- length(predictorSets)
+  multiMod <- ifelse(is.list(predictorSets) & length(predictorSets) > 1, TRUE, FALSE)
+  
+  if(multiMod){
+    numSets <- length(predictorSets)
+  }else{
+    numSets <- 1
+  }
+  
   RFresults <- numeric(numSets)
+  RFmodels <- list()
+  
+  if(include.imp == T & multiMod){
+    warning("variable importance only supported if one single model is given")
+  }
   
   if(permute_DV == TRUE){
     data[, DV] <- sample(data[, DV])
@@ -168,39 +31,246 @@ Rf.compareModels <- function(DV,
   
   for(i in 1:numSets){
     
-    RF.data <- data.frame(data[, DV], data[, predictorSets[[i]]])
+    if(multiMod){
+      RF.data <- data.frame(data[, DV], data[, predictorSets[[i]]])
+    }else{
+      RF.data <- data.frame(data[, DV], data[, predictorSets])
+    }
+    
+    missings <- sum(!complete.cases(RF.data))
+    if(missings > 0){
+      warning("Partially incomplete data in model ", i, "\n Dropping ", missings, " observations")
+      
+      RF.data <- RF.data[complete.cases(RF.data), ]
+    }
+    
     names(RF.data)[1] <- DV
     
     mtryPar <- switch(mtryArg,
                       default5 = 5,
-                      sqroot = sqrt(ncol(RF.data)-1),
+                      sqroot = round(sqrt(ncol(RF.data)-1), 0),
                       bagging = ncol(RF.data) -1)
 
     f <- as.formula(paste(DV, ".", sep = " ~ "))
     cfModel <- cforest(f, data = RF.data, controls = cforest_unbiased(ntree = numtree, mtry = mtryPar))
     
-    R_squared <- 1 - sum((data[,DV]-predict(cfModel, OOB = T))^2)/sum((data[,DV]-mean(data[,DV]))^2)
+    R_squared <- 1 - sum((RF.data[,DV]-predict(cfModel, OOB = T))^2)/sum((RF.data[,DV]-mean(RF.data[,DV]))^2)
     RFresults[i] <- R_squared
+    
+    if(include.imp == T & !(is.list(predictorSets) & length(predictorSets) > 1)){
+      imp <- varimp(cfModel, conditional = TRUE)
+    }
+    
+    RFmodels[[i]] <- cfModel
     
   }
   
-  diffScores <- unmatrix(
-      as.matrix(
-        dist(RFresults)
-        )
-      )
+  ## DEPRECATED: only if differences between models should be exported 
+  # diffScores <- unmatrix(
+  #     as.matrix(
+  #       dist(RFresults)
+  #       )
+  #     )
   
-  results <- list("RF_results" = RFresults, "Rsquared_differences" = diffScores)
+  if(exists("imp")){
+    results <- list("RF_results" = RFresults, "varImp" = imp)
+  }else if(saveModels == TRUE){
+    results <- list("Accuracies" = RFresults, "RFmodels" = RFmodels)
+  }else{
+    results <- RFresults
+  }
   
   return(results)
   
+}
+
+
+#############
+# repeated random forest for single models, including variable importance
+
+RFmain_repeat_singleModel <- function(DV, 
+                     data = df,
+                     predictorSets = NULL,
+                     numtree = 1000,
+                     mtryArg = "sqroot",
+                     permute_DV = FALSE, 
+                     include.imp = TRUE, 
+                     repeats = 5,
+                     seed = 1000){
+  
+  accVec <- numeric(repeats)
+  impVec <- matrix(nrow = repeats, ncol = length(predictorSets))
+  
+  for(i in 1:repeats){
+    
+    set.seed(i+1)
+    
+    RFmodel <- RFmain(DV = DV,
+                     data = data,
+                     predictorSets = predictorSets,
+                     numtree = numtree,
+                     mtryArg = mtryArg,
+                     permute_DV = permute_DV,
+                     include.imp = include.imp
+                     )
+    
+    accVec[i] <- RFmodel$RF_results
+    impVec[i,] <- RFmodel$varImp
+    
+    if(i == 1){
+      colnames(impVec) <- names(RFmodel$varImp)
+    }
+    
+  }
+  
+  results <- list("Accuracy" = mean(accVec), "Importance" = colMeans(impVec))
+  
+  return(results)
   
 }
 
 
 
 
+#############
+# repeated random forest for multiple models (without variable importance)
+
+RFmain_repeat_multiModel <- function(DV, 
+                                      data = df,
+                                      predictorSets = NULL,
+                                      numtree = 1000,
+                                      mtryArg = "sqroot",
+                                      permute_DV = FALSE, 
+                                      include.imp = FALSE, 
+                                      repeats = 5,
+                                      seed = 1000){
+  
+  accOut <- matrix(nrow = repeats, ncol = length(predictorSets))
+  
+  for(i in 1:repeats){
+    
+    set.seed(i+1)
+    
+    RFmodel <- RFmain(DV = DV,
+                      data = data,
+                      predictorSets = predictorSets,
+                      numtree = numtree,
+                      mtryArg = mtryArg,
+                      permute_DV = permute_DV,
+                      include.imp = include.imp)
+    
+    accOut[i,] <- RFmodel
+    
+  }
+  
+  results <- colMeans(accOut)
+  
+  return(results)
+  
+}
 
 
+
+#############
+# Permutation test for single models
+
+RFperm <- function(DV, 
+                   data = df,
+                   predictorSets = NULL,
+                   numtree = 1000,
+                   mtryArg = "sqroot",
+                   nPerm = 1000
+                   ){
+  
+  permOut <- data.frame(
+    matrix(
+      nrow = nPerm,
+      ncol = length(predictorSets)+1,
+      dimnames = list(NULL, c("Accuracy", predictorSets))
+    ))
+  
+  for(i in 1:nPerm){
+    
+    cat("\r permutation ", i, " of ", nPerm)
+    
+    RFmodel <- RFmain(DV = DV,
+                      data = data,
+                      predictorSets = predictorSets,
+                      numtree = numtree,
+                      mtryArg = mtryArg,
+                      permute_DV = TRUE,
+                      include.imp = TRUE)
+    
+    permOut[i,] <- c(RFmodel$RF_results, RFmodel$varImp)
+    
+  }
+
+  return(permOut)
+  
+}
+
+
+#############
+# R squared helper function
+
+R_squared_cust <- function(response, prediction){
+  
+  R2 <- 1-sum((response-prediction)^2)/sum((response-mean(response))^2)
+  return(R2)
+}
+
+
+
+#############
+# Permutation test for model comparisons
+# (only two models permitted)
+# remember to check for missing values! all models need to contain the same observations in the same order
+
+RFcompare <- function(Diff, responseVar, model1, model2, nPerms = 1000){
+  
+  predModel1 <- predict(model1, OOB = TRUE)
+  predModel2 <- predict(model2, OOB = TRUE)
+  
+  predictionModels <- cbind(predModel1, predModel2)
+  
+  if(length(predModel1) != length(predModel2)){
+    stop("the two models contain a different number of predictions")
+  }
+  
+  diffOut <- numeric(nPerms)
+  
+  for(i in 1:nPerms){
+    
+    randInd <- sample(rep(c(1:2), length.out = nrow(predictionModels)))
+    predShuffled1 <- predictionModels[cbind(seq_len(nrow(predictionModels)), randInd)]
+    
+    randInd_inverse <- ifelse(randInd == 1, 2, 1)
+    predShuffled2 <- predictionModels[cbind(seq_len(nrow(predictionModels)), randInd_inverse)]
+    
+    diffOut[i] <- R_squared_cust(responseVar, predShuffled1) - R_squared_cust(responseVar, predShuffled2)
+    
+  }
+  
+  p_value <- sum(diffOut >= abs(Diff))/length(diffOut)
+  return(p_value)
+  
+}
+
+
+#############
+# return p-avlues
+
+returnP <- function(values, permutations){
+  
+  pOut <- numeric(length(values))
+  
+  for(i in 1:length(values)){
+    
+    pOut[i] <- sum(permutations[,i] >= values[i])/nrow(permutations)
+    
+  }
+  return(pOut)
+  
+}
 
 
