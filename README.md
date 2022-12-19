@@ -8,6 +8,7 @@
 renv::restore(). This will make sure you're working with the same package versions as we did.  
 For further session info, see the bottom of this readme.  
 -Now, you should be able to run the analysis script.  
+-At the time this readme is written, there is no confirmation that we can share the data. If the "data" folder is not available in the reposistory, please contact the authors of the paper for data access.
 
 
 -Session Info:
