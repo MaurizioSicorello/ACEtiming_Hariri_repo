@@ -2,12 +2,12 @@
  Predict amygdala responses in the Hariri task from early adversity during specific life years
 
 
--Open the file "ACEtiming_Rproject.Rproj"
--Open "ACEtiming_MainScript.R" if not already open
--Install and load the package "renv" by typing install.packages("renv") and libary("renv"). Then, use the command
-renv::restore(). This will make sure you're working with the same package versions as we did. 
-For further session info, see the bottom of this readme.
--Now, you should be able to run the analysis script.
+-Open the file "ACEtiming_Rproject.Rproj"  
+-Open "ACEtiming_MainScript.R" if not already open  
+-Install and load the package "renv" by typing install.packages("renv") and libary("renv"). Then, use the command  
+renv::restore(). This will make sure you're working with the same package versions as we did.  
+For further session info, see the bottom of this readme.  
+-Now, you should be able to run the analysis script.  
 
 
 -Session Info:
