@@ -29,6 +29,7 @@ library("Hmisc")
 library("gameofthrones")
 library("cocor")
 library("cowplot")
+library("robmed")
 
 source(here("functions", "randomForest_functions.R"))
 
@@ -36,6 +37,7 @@ source(here("functions", "randomForest_functions.R"))
 # load & inspect data
 df <- read.csv2(here("data", "mainData_v3.csv"), dec = ".")
 df$Group <- as.factor(df$Group)
+names(df)[which(names(df) == "Sex_SPSS")] <- "Sex"
 
 options(max.print = 4000)
 
@@ -373,7 +375,6 @@ ggsave(here("figures", "Figure2_AccuracyModelComparisons.pdf"), device = "pdf")
 # plot variable importance for model 5
 
 
-
 predictorList <- names(RFrep_right_model5$Importance)
 df_plotImp <- data.frame("Predictors" = rep(predictorList, 2), "varImp" = c(RFrep_right_model5$Importance, RFrep_left_model5$Importance), "Hemisphere" = rep(c("Right", "Left"), each = length(predictorList)))
 df_plotImp$Predictors <-  factor(df_plotImp$Predictors, unique(df_plotImp$Predictors))
@@ -400,6 +401,13 @@ ggsave(here("figures", "Figure3_variableImportance.png"), device = "png")
 ggsave(here("figures", "Figure3_variableImportance.pdf"), device = "pdf")
 
 
+
+############
+# inspect variable importance of model 6
+
+model6Right_pValues <- read.csv(here("results", "amyRight_model6_pValues.csv"))
+model6Right_pValues[model6Right_pValues$V2 <= .05, ]
+model6Right_pValues[p.adjust(model6Right_pValues$V2, method = "fdr") <= .05, ]
 
 ########################
 # bivariate association with FDS
@@ -440,6 +448,30 @@ ggsave(here("figures", "Figure4_FDScorrelations.pdf"), device = "pdf")
 
 
 
+############
+# robustness check for outliers
+
+# univariate
+boxplot(df$FDS_DES_Sum, range = 3)
+boxplot(df$con0009_AAL_Amygdala_right_anger_fear_vs_shapes, range = 3)
+boxplot(df$con0009_AAL_Amygdala_left_anger_fear_vs_shapes, range = 3)
+
+
+# multivariate
+mahaRight <- outlier(data.frame(df$FDS_DES_Sum, df$con0009_AAL_Amygdala_right_anger_fear_vs_shapes))
+mahaLeft <- outlier(data.frame(df$FDS_DES_Sum, df$con0009_AAL_Amygdala_left_anger_fear_vs_shapes))
+
+outRight <- which(pchisq(mahaRight, df = 1, lower.tail = FALSE) <= .001)
+outLeft <- which(pchisq(mahaLeft, df = 1, lower.tail = FALSE) <= .001)
+
+cor.test(df$FDS_DES_Sum[-outRight], df$con0009_AAL_Amygdala_right_anger_fear_vs_shapes[-outRight])
+cor.test(df$FDS_DES_Sum[-outLeft], df$con0009_AAL_Amygdala_left_anger_fear_vs_shapes[-outLeft])
+
+
+# scanner effects
+cor.test(df$FDS_DES_Sum[df$Scanner == 0], df$con0009_AAL_Amygdala_right_anger_fear_vs_shapes[df$Scanner == 0])
+cor.test(df$FDS_DES_Sum[df$Scanner == 0], df$con0009_AAL_Amygdala_left_anger_fear_vs_shapes[df$Scanner == 0])
+
 
 ########################
 # mediation
@@ -453,15 +485,15 @@ dfMediation <- df[, c("con0009_AAL_Amygdala_right_anger_fear_vs_shapes", "con000
 dfMediation <- data.frame(scale(dfMediation))
 
 fit.totaleffect_right <- lm(data = dfMediation,
-                   con0009_AAL_Amygdala_right_anger_fear_vs_shapes ~ KERF_Sum+Sex+Age)
+                   con0009_AAL_Amygdala_right_anger_fear_vs_shapes ~ KERF_Sum)
 summary(fit.totaleffect_right)
 
 fit.mediator_right <- lm(data = dfMediation,
-                FDS_DES_Sum ~ KERF_Sum+Sex+Age)
+                FDS_DES_Sum ~ KERF_Sum)
 summary(fit.mediator_right)
 
 fit.dv_right <- lm(data = dfMediation,
-             con0009_AAL_Amygdala_right_anger_fear_vs_shapes ~ FDS_DES_Sum+KERF_Sum+Sex+Age)
+             con0009_AAL_Amygdala_right_anger_fear_vs_shapes ~ FDS_DES_Sum+KERF_Sum)
 summary(fit.dv_right)
 
 medResults_right = mediation::mediate(fit.mediator_right, fit.dv_right, treat='KERF_Sum', mediator='FDS_DES_Sum', boot=T, sims = 5000)
@@ -470,19 +502,32 @@ summary(medResults_right)
 
 # left amygdala
 fit.totaleffect_left <- lm(data = dfMediation,
-                            con0009_AAL_Amygdala_left_anger_fear_vs_shapes ~ KERF_Sum+Sex+Age)
+                            con0009_AAL_Amygdala_left_anger_fear_vs_shapes ~ KERF_Sum)
 summary(fit.totaleffect_left)
 
 fit.mediator_left <- lm(data = dfMediation,
-                         FDS_DES_Sum ~ KERF_Sum+Sex+Age)
+                         FDS_DES_Sum ~ KERF_Sum)
 summary(fit.mediator_left)
 
 fit.dv_left <- lm(data = dfMediation,
-                   con0009_AAL_Amygdala_left_anger_fear_vs_shapes ~ FDS_DES_Sum+KERF_Sum+Sex+Age)
+                   con0009_AAL_Amygdala_left_anger_fear_vs_shapes ~ FDS_DES_Sum+KERF_Sum)
 summary(fit.dv_left)
 
 medResults_left = mediation::mediate(fit.mediator_left, fit.dv_left, treat='KERF_Sum', mediator='FDS_DES_Sum', boot=T, sims = 5000)
 summary(medResults_left)
+
+
+##### robustness checks
+sum(pchisq(outlier(dfMediation), df = 5, lower.tail = FALSE) <= .001)
+psych::describe(dfMediation)
+
+f_simpleRight <- con0009_AAL_Amygdala_right_anger_fear_vs_shapes ~ m(FDS_DES_Sum) + KERF_Sum
+robust_boot_simpleRight <- test_mediation(f_simpleRight, data = dfMediation, robust = TRUE, R = 5000)
+summary(robust_boot_simpleRight)
+
+f_simpleRight <- con0009_AAL_Amygdala_left_anger_fear_vs_shapes ~ m(FDS_DES_Sum) + KERF_Sum
+robust_boot_simpleLeft <- test_mediation(f_simpleRight, data = dfMediation, robust = TRUE, R = 5000)
+summary(robust_boot_simpleLeft)
 
 
 ########################
@@ -608,3 +653,53 @@ summary(
 
 cor.test(df$sicorello_prePub, df$con0009_AAL_Amygdala_right_anger_fear_vs_shapes)
 cor.test(df$sicorello_postPub, df$con0009_AAL_Amygdala_right_anger_fear_vs_shapes)
+
+
+
+
+#######################
+# roustness check for scanner effects on random forest
+
+
+# predict right amygdala [might take a couple of minutes]
+amyRight_AccRepeat_rob <- RFmain_repeat_multiModel("con0009_AAL_Amygdala_right_anger_fear_vs_shapes", 
+                                               predictorSets = modelList,
+                                               mtryArg = "bagging",
+                                               data = dfcomplete[dfcomplete$Scanner == 0, ],
+                                               repeats = 5,
+                                               seed = 1000)
+
+# predict left amygdala
+amyLeft_AccRepeat_rob <- RFmain_repeat_multiModel("con0009_AAL_Amygdala_left_anger_fear_vs_shapes", 
+                                              predictorSets = modelList,
+                                              mtryArg = "bagging",
+                                              data = dfcomplete,
+                                              repeats = 5,
+                                              seed = 1001)
+
+
+############
+# plot models
+
+############
+# plot variance explained for different models
+
+modelNames <- c("Model 1: Baseline", "Model 2: Type", "Model 3: Timing", "Model 4: Type x Timing", "Model 5: Psychopathology", "Model 6: Full Model")
+df_plotAcc <- data.frame("modelNames" = rep(modelNames, 2), "Accuracies" = c(amyRight_AccRepeat_rob, amyLeft_AccRepeat_rob), "Hemisphere" = rep(c("Right", "Left"), each = length(modelNames)))
+
+ggplot(data = df_plotAcc, aes(y = Accuracies, x = modelNames, fill = Hemisphere)) +
+  geom_bar(position = "dodge", stat = "identity", colour = "black") +
+  
+  ylim(-0.2, 0.4) + 
+  ylab(expression(paste(italic("R²"), "(cross-validated)"))) +
+  
+  xlab(NULL) +
+  
+  theme_classic() +
+  scale_fill_got_d(option = "Daenerys") +
+  theme(axis.text.x=element_text(angle = 45, vjust = 0.5)) +
+  
+  scale_y_continuous(n.breaks = 12, limits = c(-0.2, 0.4))
+
+ggsave(here("figures", "Figure2_AccuracyModelComparisons_trio.png"), device = "png")
+ggsave(here("figures", "Figure2_AccuracyModelComparisons_trio.pdf"), device = "pdf")
